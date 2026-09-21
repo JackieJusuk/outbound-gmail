@@ -139,7 +139,7 @@ powercfg /change hibernate-timeout-ac 0
 
 **작업 스케줄러가 로그인 여부와 무관하게 실행되는지 확인**:
 ```powershell
-schtasks /query /tn "CorpMailOutreach_SendCycle" /v /fo list
+schtasks /query /tn "outbound-gmail_SendCycle" /v /fo list
 ```
 "작업 로그온 유형"이 "로그온한 경우에만"이면 로그아웃/잠금 상태에서 안 돌 수 있습니다.
 "사용자가 로그온했는지 여부에 관계없이 실행"으로 바꾸려면 `taskschd.msc` GUI에서 해당 작업
@@ -150,7 +150,7 @@ schtasks /query /tn "CorpMailOutreach_SendCycle" /v /fo list
 
 **매일 아침 5분 점검 루틴** (권장):
 ```powershell
-schtasks /query /tn "CorpMailOutreach_SendCycle" /v /fo list | findstr /i "마지막"
+schtasks /query /tn "outbound-gmail_SendCycle" /v /fo list | findstr /i "마지막"
 python scripts\check_db_summary.py
 ```
 "마지막 실행 시간/결과"와 발송 성공 건수 누적 여부를 바로 확인할 수 있습니다. BCC 메일함
