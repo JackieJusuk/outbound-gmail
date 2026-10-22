@@ -1,53 +1,23 @@
-# corp-mail-outreach-v2 발송 사이클을 1회 실행하는 래퍼 스크립트.
-$ErrorActionPreference = "Stop"
+﻿# corp-mail-outreach-v2 발송 사이클을 1회 실행하는 래퍼 스크립트 (작업 스케줄러가 호출).
+# Claude 호출 없이 send_cycle.py가 대상선정~SMTP발송~로그기록을 모두 처리한다.
+# 실행 결과는 logs/send_cycle.log에 한 줄씩 남기고, 오류면 exit 1로 스케줄러에도 실패를 알린다.
 Set-Location -Path $PSScriptRoot\..
 
-$prompt = @"
-requirements.md를 참조해서 발송 사이클을 1회 수행해줘.
-1. scripts/pick_next_target.py 를 실행해서 발송 가능 여부와 대상을 확인해.
-2. eligible이 false면 이유만 확인하고 아무 것도 하지 말고 종료해.
-3. eligible이 true면, 대상 회사의 company_name을 {{company_name}} 자리에 채워
-   메일 제목/본문을 구성하고, Gmail MCP의 send_message로 그 회사의 이메일 주소로
-   1건만 발송해. 이때 반드시 bcc에 ljusibm@gmail.com을 포함해.
-4. 발송 성공/실패에 따라 scripts/log_send.py 로 로그를 기록해
-   (--status success 또는 failed, --template 사용한 템플릿 파일명).
-5. 그 외의 파일 삭제, 다른 스크립트 실행, 코드 수정 등은 절대 하지 마.
-"@
-
-# claude 출력/종료 코드를 logs/send_cycle.log에 남기고, 사용량 한도 초과는 실패(exit 1)로 알린다.
-# (이전에는 claude가 한도 메시지만 출력해도 스케줄러에는 성공(0)으로 기록되어 장애가 드러나지 않았음)
 $logDir = Join-Path (Get-Location) "logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $logFile = Join-Path $logDir "send_cycle.log"
 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = "Continue"
-
-# 사전 체크: 발송 불가(eligible=false)면 claude를 호출하지 않아 사용량을 아낀다.
-# 판정 실패(파싱 오류 등) 시에는 기존대로 claude에게 넘긴다.
-$pre = (& python scripts/pick_next_target.py 2>&1 | Out-String).Trim()
-try {
-    $check = $pre | ConvertFrom-Json
-    if ($check.eligible -eq $false) {
-        $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        Add-Content -Path $logFile -Encoding UTF8 -Value "[$stamp] status=SKIP :: $($check.reason)"
-        Write-Output $check.reason
-        exit 0
-    }
-} catch {
-    $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -Path $logFile -Encoding UTF8 -Value "[$stamp] status=PRECHECK_FAIL :: $($pre -replace '\s+', ' ')"
-}
-
-$output = (& claude -p $prompt --permission-mode auto 2>&1 | Out-String).Trim()
+$output = (& python scripts/send_cycle.py 2>&1 | Out-String).Trim()
 $exitCode = $LASTEXITCODE
 
 $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$limitHit = $output -match "(?i)(weekly|usage|rate)\s+limit|hit your .*limit"
-$status = if ($limitHit) { "LIMIT_HIT" } elseif ($exitCode -ne 0) { "ERROR" } else { "OK" }
+$status = if ($exitCode -ne 0) { "ERROR" } elseif ($output -match "^발송 성공") { "SENT" } else { "SKIP" }
 
 $summary = $output
 if ($summary.Length -gt 500) { $summary = $summary.Substring(0, 500) + "..." }
 Add-Content -Path $logFile -Encoding UTF8 -Value "[$stamp] status=$status exit=$exitCode :: $($summary -replace '\s+', ' ')"
 
 Write-Output $output
-if ($status -ne "OK") { exit 1 }
+if ($status -eq "ERROR") { exit 1 }

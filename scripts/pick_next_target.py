@@ -79,67 +79,63 @@ def emit(payload):
     print(json.dumps(payload, ensure_ascii=True))
 
 
-def main():
-    args = parse_args()
+def evaluate(db_path):
+    """현재 시점의 발송 가능 여부를 판정한다. emit()에 넘기는 dict와 같은 형식을 반환한다.
+    send_cycle.py(SMTP 직접 발송)도 이 함수를 그대로 써서 판정 기준을 한 곳에서만 관리한다."""
     now = datetime.now(KST)
 
     if WEEKDAYS_ONLY and now.weekday() >= 5:  # 5=토, 6=일
-        emit({"eligible": False, "reason": "주말에는 발송할 수 없습니다 (평일 09:00~18:00 KST만 발송)."})
-        return
+        return {"eligible": False, "reason": "주말에는 발송할 수 없습니다 (평일 09:00~18:00 KST만 발송)."}
 
     today_str = now.strftime("%Y-%m-%d")
     if today_str in KOREAN_HOLIDAYS:
-        emit({"eligible": False, "reason": f"법정공휴일({today_str})에는 발송할 수 없습니다."})
-        return
+        return {"eligible": False, "reason": f"법정공휴일({today_str})에는 발송할 수 없습니다."}
 
     if not (BUSINESS_START_HOUR <= now.hour < BUSINESS_END_HOUR):
-        emit({"eligible": False, "reason": "업무시간(평일 09:00~18:00 KST) 외에는 발송할 수 없습니다."})
-        return
+        return {"eligible": False, "reason": "업무시간(평일 09:00~18:00 KST) 외에는 발송할 수 없습니다."}
 
-    conn = sqlite3.connect(args.db)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
+    try:
+        # 페이싱 확인: 마지막 성공 발송으로부터 15분이 지나야 함
+        # 주의: sent_at은 KST(Asia/Seoul) 기준으로 저장된다 (log_send.py 참조).
+        cur.execute(
+            "SELECT sent_at FROM send_log WHERE status = 'success' ORDER BY sent_at DESC LIMIT 1"
+        )
+        last = cur.fetchone()
+        if last:
+            last_sent_kst = datetime.fromisoformat(last["sent_at"]).replace(tzinfo=KST)
+            elapsed = (datetime.now(KST) - last_sent_kst).total_seconds()
+            if elapsed < MIN_INTERVAL_SECONDS:
+                wait_sec = int(MIN_INTERVAL_SECONDS - elapsed)
+                return {
+                    "eligible": False,
+                    "reason": f"마지막 발송 후 15분이 지나지 않았습니다. 약 {wait_sec}초 후 다시 확인하세요.",
+                }
 
-    # 페이싱 확인: 마지막 성공 발송으로부터 15분이 지나야 함
-    # 주의: sent_at은 KST(Asia/Seoul) 기준으로 저장된다 (log_send.py 참조).
-    cur.execute(
-        "SELECT sent_at FROM send_log WHERE status = 'success' ORDER BY sent_at DESC LIMIT 1"
-    )
-    last = cur.fetchone()
-    if last:
-        last_sent_kst = datetime.fromisoformat(last["sent_at"]).replace(tzinfo=KST)
-        elapsed = (datetime.now(KST) - last_sent_kst).total_seconds()
-        if elapsed < MIN_INTERVAL_SECONDS:
-            wait_sec = int(MIN_INTERVAL_SECONDS - elapsed)
-            emit({
-                "eligible": False,
-                "reason": f"마지막 발송 후 15분이 지나지 않았습니다. 약 {wait_sec}초 후 다시 확인하세요.",
-            })
-            conn.close()
-            return
-
-    # 발송 대상 조회: 동의완료 + 이메일보유 + 미발송
-    cur.execute(
-        """
-        SELECT business_reg_no, company_name, representative_name, email
-        FROM companies
-        WHERE consent_status = 'opted_in'
-          AND email_status = 'present'
-          AND business_reg_no NOT IN (
-              SELECT business_reg_no FROM send_log WHERE status = 'success'
-          )
-        ORDER BY created_at ASC
-        LIMIT 1
-        """
-    )
-    target = cur.fetchone()
-    conn.close()
+        # 발송 대상 조회: 동의완료 + 이메일보유 + 미발송
+        cur.execute(
+            """
+            SELECT business_reg_no, company_name, representative_name, email
+            FROM companies
+            WHERE consent_status = 'opted_in'
+              AND email_status = 'present'
+              AND business_reg_no NOT IN (
+                  SELECT business_reg_no FROM send_log WHERE status = 'success'
+              )
+            ORDER BY created_at ASC
+            LIMIT 1
+            """
+        )
+        target = cur.fetchone()
+    finally:
+        conn.close()
 
     if not target:
-        emit({"eligible": False, "reason": "발송 가능한(동의완료·이메일보유·미발송) 대상이 없습니다."})
-        return
+        return {"eligible": False, "reason": "발송 가능한(동의완료·이메일보유·미발송) 대상이 없습니다."}
 
-    emit({
+    return {
         "eligible": True,
         "target": {
             "business_reg_no": target["business_reg_no"],
@@ -147,7 +143,12 @@ def main():
             "representative_name": target["representative_name"],
             "email": target["email"],
         },
-    })
+    }
+
+
+def main():
+    args = parse_args()
+    emit(evaluate(args.db))
 
 
 if __name__ == "__main__":
