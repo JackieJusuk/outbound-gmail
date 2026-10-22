@@ -21,6 +21,23 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $logFile = Join-Path $logDir "send_cycle.log"
 
 $ErrorActionPreference = "Continue"
+
+# 사전 체크: 발송 불가(eligible=false)면 claude를 호출하지 않아 사용량을 아낀다.
+# 판정 실패(파싱 오류 등) 시에는 기존대로 claude에게 넘긴다.
+$pre = (& python scripts/pick_next_target.py 2>&1 | Out-String).Trim()
+try {
+    $check = $pre | ConvertFrom-Json
+    if ($check.eligible -eq $false) {
+        $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        Add-Content -Path $logFile -Encoding UTF8 -Value "[$stamp] status=SKIP :: $($check.reason)"
+        Write-Output $check.reason
+        exit 0
+    }
+} catch {
+    $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Add-Content -Path $logFile -Encoding UTF8 -Value "[$stamp] status=PRECHECK_FAIL :: $($pre -replace '\s+', ' ')"
+}
+
 $output = (& claude -p $prompt --permission-mode auto 2>&1 | Out-String).Trim()
 $exitCode = $LASTEXITCODE
 
