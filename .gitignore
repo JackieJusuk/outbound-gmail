@@ -24,3 +24,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# send cycle wrapper log
+logs/
