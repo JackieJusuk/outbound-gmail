@@ -15,7 +15,7 @@
 웹 업로드 화면은 없습니다 (개인정보를 외부 서버에 올리지 않기 위함, requirements.md 2.7 참조).
 
 - 데이터 적재(엑셀 → DB): 로컬 Python 배치 스크립트
-- 메일 발송: **로컬에 설치된 Claude Code**가 Gmail MCP 커넥터로 직접 수행
+- 메일 발송: 작업 스케줄러가 `scripts\send_cycle.py`를 실행해 Gmail SMTP(앱 비밀번호)로 직접 발송 (Claude 호출 없음)
 
 ## 처음 설치 시 (로컬 노트북에서)
 
@@ -98,22 +98,22 @@ python scripts\set_consent.py --business-reg-no 1234567890 --status opted_out --
 동의 확보 자체의 적법성은 (requirements.md 2.2와 마찬가지로) 사용자 책임입니다 — 프로그램은
 입력된 근거를 검증하지 않고 그대로 기록만 합니다.
 
-## 4. 발송 (로컬 Claude Code가 수행)
+## 4. 발송 (작업 스케줄러가 자동 수행)
 
-로컬 Claude Code에게 "다음 발송 대상 확인하고 있으면 보내줘"라고 요청하면 됩니다.
-내부적으로는 다음 순서로 진행됩니다:
+Windows 작업 스케줄러가 평일 15분 간격으로 `scripts\run_send_cycle.ps1`을 실행하고,
+`scripts\send_cycle.py`가 아래 과정을 한 번에 처리합니다 (Claude 호출 없음):
 
-1. `python scripts\pick_next_target.py` 실행 → 발송 가능 여부·대상 확인
-   (평일 09:00~18:00, 5분당 1건 페이싱, 동의 상태를 모두 자동 검증)
+1. 발송 가능 여부·대상 판정 (`pick_next_target.evaluate()`)
+   (평일 09:00~18:00, 15분당 1건 페이싱, 동의 상태를 모두 자동 검증)
 2. 대상이 있으면, `templates\receivables_template.txt`에 `{{company_name}}` 값을
    채워 메일 작성. 인사말은 "{{company_name}} 대표님, 안녕하세요. 신용사회 지킴이
    고려신용정보 이주석 팀장입니다."로 시작하고, 하단에는 고려신용정보 서명
    (신용관리사(국가공인자격사) 이주석, 010-6527-6825 등)이 포함됩니다.
-   Gmail MCP `send_message`로 발송합니다.
-3. 발송 직후 로그 기록:
-   ```powershell
-   python scripts\log_send.py --business-reg-no 1234567890 --status success --template receivables_template.txt
-   ```
+   Gmail SMTP(`smtp.gmail.com:465`, 앱 비밀번호)로 발송합니다.
+3. 발송 결과를 send_log에 기록
+
+수동으로 확인하려면 `python scripts\send_cycle.py --dry-run`(발송·기록 없이 대상과 본문만 출력)을
+실행합니다. 필요한 `GMAIL_SMTP_USER`, `GMAIL_SMTP_APP_PASSWORD`는 `.env`에 설정합니다.
 
 ## 5. 이메일 미확보 레코드 보강
 

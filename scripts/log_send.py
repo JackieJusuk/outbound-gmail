@@ -3,8 +3,9 @@
 발송 로그를 기록하는 스크립트.
 requirements.md 2.4절(발송 로그 요구사항) 참조.
 
-로컬 Claude Code가 Gmail MCP로 실제 발송(또는 발송 시도)을 마친 직후
-이 스크립트를 실행하여 결과를 send_log 테이블에 남긴다.
+실제 발송(또는 발송 시도)을 마친 직후 결과를 send_log 테이블에 남긴다.
+정기 발송은 send_cycle.py가 직접 기록하며, 이 스크립트는 수동 발송 등
+별도로 로그를 남겨야 할 때 직접 실행한다.
 
 사용법:
     python scripts/log_send.py --business-reg-no <사업자등록번호> \
