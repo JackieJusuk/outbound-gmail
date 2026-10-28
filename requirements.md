@@ -279,3 +279,17 @@ sqlite_sequence — SQLite 내부 자동증가 관리용 (신경 안 써도 됨)
 공통 리스크(방식 무관): Gmail 스팸/어뷰징 탐지(2.6), 정보통신망법 광고성 정보 요건(동의·(광고) 표기·수신거부), 대량 발송 시 Google Workspace 회사 도메인 이전 검토. SMTP 완화책: `.env` 커밋 방지, 인증 실패(535) 시 failed 기록 후 확인, 앱 비밀번호 용도별 발급·정기 재발급.
 
 참고: naver 프로그램(C:/Users/jusuk/outbound-naver)은 처음부터 SMTP 직접 발송이며 중앙 로그(`shared/central_send_log.db`)로 프로바이더 간 중복을 막는다. gmail 프로그램은 아직 이 중앙 로그에 연결되어 있지 않다(별도 과제).
+
+## 작업 스케줄러 필수 설정 (사용자 확정, 2026-10-29)
+
+무인 발송의 신뢰성을 좌우하는 **중요 설정**이다. 작업 `outbound-gmail_SendCycle`에 아래 값을 유지해야 하며, 작업을 재등록하거나 수정한 뒤에는 반드시 다시 확인한다.
+
+| 설정 | 값 | 의미 |
+|---|---|---|
+| WakeToRun (절전 해제 후 실행) | **True** | 예약 시각에 PC가 절전 상태여도 깨워서 실행한다. 꺼져 있으면 절전 중 트리거가 그대로 스킵된다. 완전 종료 상태는 깨우지 못한다. |
+| StartWhenAvailable (놓친 작업 보충 실행) | **True** | 예정 시각을 놓친 경우(PC 꺼짐·로그오프 등) 가능해지는 즉시 1회 보충 실행한다. 업무시간(평일 09:00~18:00 KST) 밖이면 `send_cycle`이 발송 없이 종료하므로 시간 외 발송 위험은 없다. |
+| DisallowStartIfOnBatteries / StopIfGoingOnBatteries | **False** | 배터리 구동 중에도 시작·유지한다 (노트북 운영). |
+
+- 확인: `Get-ScheduledTask -TaskName outbound-gmail_SendCycle | Select -Expand Settings | Select WakeToRun, StartWhenAvailable`
+- 변경: 작업이 암호 저장 방식 계정(`LogonType: Password`)이라 `Set-ScheduledTask`/`schtasks /change`는 `0x8007052e`로 실패한다. `taskschd.msc` GUI(설정 탭)에서만 변경한다.
+- 이력: 2026-10-29 점검에서 WakeToRun은 3개 프로그램 모두 True, StartWhenAvailable은 gmail·naver가 False였고 namecard만 True였다. 사용자가 GUI로 gmail·naver를 True로 변경해 3개 프로그램(`outbound-naver-nate_Naver_SendCycle`, `outbound-gmail_SendCycle`, `outbound-namecard-send`) 모두 WakeToRun=True / StartWhenAvailable=True가 되었음을 확인했다.
